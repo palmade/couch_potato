@@ -4,7 +4,7 @@ module Palmade::CouchPotato
       # cache_add("sessions/#{sid}", rawsd, expiry, true)
       def cache_add(k, rawsd, expiry, raw = true)
         ret = @cache.add(k, rawsd, expiry || 0, raw)
-        raise CacheCollision, "Session collision on '#{k.inspect}'" unless /^STORED/ =~ ret
+        raise Palmade::CouchPotato::Session::CacheCollision, "Session collision on '#{k.inspect}'" unless /^STORED/ =~ ret
         ret
       end
 
