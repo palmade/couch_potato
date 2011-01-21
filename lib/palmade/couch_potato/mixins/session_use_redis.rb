@@ -8,7 +8,7 @@ module Palmade::CouchPotato
         if added
           @cache.expire(k, expiry) unless expiry.nil?
         else
-          raise CacheCollision, "Session collision on '#{k.inspect}'"
+          raise Palmade::CouchPotato::Session::CacheCollision, "Session collision on '#{k.inspect}'"
         end
 
         added
@@ -33,11 +33,15 @@ module Palmade::CouchPotato
 
       # cache_fetch(x, x)
       def cache_fetch(k, expiry = nil, raw = true, &block)
-        value = cache_get(k, raw)
-        if value.nil? && block_given?
+        if @cache.exists(k)
+          value = cache_get(k, raw)
+        elsif block_given?
           value = yield
-          cache_add(k, value, expiry, raw)
+          cache_set(k, value, expiry, raw)
+        else
+          value = nil
         end
+
         value
       end
 

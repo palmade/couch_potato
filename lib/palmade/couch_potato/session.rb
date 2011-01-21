@@ -63,7 +63,8 @@ module Palmade::CouchPotato
 
           if defined?(MemCache) && @cache.is_a?(MemCache)
             self.extend(Palmade::CouchPotato::Mixins::SessionUseMemCache)
-          elsif defined?(Redis) && @cache.is_a?(Redis)
+          elsif (defined?(DistRedis) && @cache.is_a?(DistRedis)) ||
+              (defined?(Redis) && @cache.is_a?(Redis))
             self.extend(Palmade::CouchPotato::Mixins::SessionUseRedis)
           else
             raise UnsupportedCache, "Unsupported cache, supports only: memcache | redis"
