@@ -196,6 +196,16 @@ module Palmade::CouchPotato
       @data.each(&block)
     end
 
+    def update(hash)
+      hash.each do |key, value|
+        self[key] = value
+      end
+    end
+
+    def to_hash
+      @data
+    end
+
     protected
 
     def serialize_ready
