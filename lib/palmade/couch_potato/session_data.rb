@@ -202,6 +202,10 @@ module Palmade::CouchPotato
       end
     end
 
+    def clear
+      @data.clear
+    end
+
     def to_hash
       @data
     end
