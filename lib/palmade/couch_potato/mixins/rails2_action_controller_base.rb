@@ -6,8 +6,14 @@ module Palmade
           request.global_session
         end
 
-        def reset_global_session
-          request.reset_global_session
+        def reset_global_session(sid = nil)
+          request.reset_global_session(sid)
+        end
+
+        def reset_session(sid = nil)
+          request.reset_session(sid)
+
+          @_session = request.session
         end
 
         def drop_session

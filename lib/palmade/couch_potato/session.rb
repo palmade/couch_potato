@@ -18,7 +18,7 @@ module Palmade::CouchPotato
       :cache_expire_after => 3600 # 1 hour
     }
 
-    SD_DELIMETER = "|"
+    SD_DELIMETER = "|".freeze
 
     attr_accessor :global
     alias :global? :global
@@ -94,7 +94,6 @@ module Palmade::CouchPotato
     # Ok, that's enough documentation for this area. Go ahead, go read
     # some code.
     #
-
     def context_with_auto_create(env, app = @app, &block)
       request = Rack::Request.new(env)
       if auto_create? || exist = request.cookies.include?(key)
@@ -125,6 +124,7 @@ module Palmade::CouchPotato
 
             env["rack.session.#{local_name}"] = local_env['rack.session']
             env["rack.session.#{local_name}.options"] = { }.merge(local_env['rack.session.options'])
+            env["rack.session.#{local_name}.middleware"] = local_env['rack.session.middleware']
 
             status, headers, body = yield
 
@@ -160,6 +160,10 @@ module Palmade::CouchPotato
         sd.domain = ".#{host}" if sd.respond_to?(:domain)
       end
 
+      # let's attach ourself, just in case, the downline
+      # wants us to do something.
+      env['rack.session.middleware'] = self
+
       so
     end
     alias :load_session_without_couch_potato :load_session
@@ -183,19 +187,36 @@ module Palmade::CouchPotato
     alias :commit_session_without_couch_potato :commit_session
     alias :commit_session :commit_session_with_couch_potato
 
+    def new_session(sid = nil)
+      sd = Palmade::CouchPotato::SessionData.new(sid, nil, nil, sd_options)
+      sd.handler = self
+      sd
+    end
+
+    def use_session(sid)
+      # load cache
+      cache
+
+      sd = nil
+      begin
+        sd = get_sd(sid)
+        unless sd.nil?
+          # let's set the fragment store, to the same cache store as we came from
+          sd.handler = self
+        end
+      rescue Exception => e
+        puts_warn(e)
+      end
+      sd
+    end
+
     def get_session(env, sid)
       # load cache
       cache
 
-
-      begin
-        sd = nil
-        unless sid.nil?
-          sd = get_sd(sid)
-        end
-      rescue Exception => e
-        sd = nil
-        puts_warn(e)
+      sd = nil
+      unless sid.nil?
+        sd = use_session(sid)
       end
 
       begin
@@ -203,15 +224,13 @@ module Palmade::CouchPotato
 
         if sd.nil?
           env['rack.errors'].puts("Session '#{sid.inspect}' not found, initializing...") if $VERBOSE && !sid.nil?
-          sd = Palmade::CouchPotato::SessionData.new(nil, nil, nil, sd_options)
+          sd = new_session
 
           # let's pre-add it to memcache, our new session
           sid = sd.session_id
-          preempt_sid(sid, @default_options[:expire_after] || @default_options[:cache_expire_after])
+          preempt_sid(sid)
         end
 
-        # let's set the fragment store, to the same cache store as we came from
-        sd.handler = self
         sd.global = env['rack.session.global']
 
         return [ sid, sd ]
@@ -247,7 +266,6 @@ module Palmade::CouchPotato
           sid = "00000000"
         when options[:reset]
           sid = sd.session_id
-          preempt_sid(sid, expiry)
 
           old_sd = options[:old_sd]
           old_sid = options[:old_sid]
@@ -258,6 +276,10 @@ module Palmade::CouchPotato
               delete_sd(old_sd)
             elsif !old_sid.nil?
               delete_sd(old_sid)
+            end
+
+            if sd.revision_no > 0
+              incremental_merge(sid, sd)
             end
 
             sd.increment_revision!
@@ -277,7 +299,9 @@ module Palmade::CouchPotato
           preempt_sid(sid, expiry)
 
           finalize = lambda do
-            incremental_merge(old_sid, sd)
+            if sd.revision_no > 0
+              incremental_merge(old_sid, sd)
+            end
 
             sd.increment_revision!
             set_sd(sid, sd, expiry, old_sid) # let's save ourselves
@@ -285,9 +309,12 @@ module Palmade::CouchPotato
           end
         else
           # TODO: when doing an incremental merge, perhaps, there's
-          # a better updated since retrieved checking (this seems to be very costly)
+          # a better updated way to do this since retrieved
+          # checking (this seems to be very costly)
           finalize = lambda do
-            incremental_merge(sid, sd)
+            if sd.revision_no > 0
+              incremental_merge(sid, sd)
+            end
 
             sd.increment_revision!
             set_sd(sid, sd, expiry)
@@ -316,6 +343,14 @@ module Palmade::CouchPotato
       end
     end
 
+    def preempt_sid(sid, expiry = nil)
+      if expiry.nil?
+        expiry = @default_options[:expire_after] || @default_options[:cache_expire_after]
+      end
+
+      add_sd(sid, 0, expiry)
+    end
+
     protected
 
     def incremental_merge(sid, sd)
@@ -327,10 +362,6 @@ module Palmade::CouchPotato
           sd.incremental_merge!(deserialize_rawsd(sid, saved_sd[1]))
         end
       end
-    end
-
-    def preempt_sid(sid, expiry = nil)
-      add_sd(sid, 0, expiry)
     end
 
     def add_sd(sid, sd, expiry = nil)

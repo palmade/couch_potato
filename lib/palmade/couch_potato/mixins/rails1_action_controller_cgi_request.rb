@@ -17,7 +17,13 @@ module Palmade
           @env['rack.session.global'] ||= { }
         end
 
-        def reset_session_with_couch_potato
+        def reset_session_with_couch_potato(sid = nil)
+          mw = @env['rack.session.middleware']
+          sd = nil
+          unless sid.nil?
+            sd = mw.use_session(sid)
+          end
+
           # let's save the last known session id, so we can delete it!
           unless @session_options[:id].nil?
             @session_options[:reset] = true
@@ -26,13 +32,27 @@ module Palmade
           end
           @session_options.delete(:id)
 
-          @env['rack.session'] = Palmade::CouchPotato::SessionData.new
+          if sd.nil?
+            sd = @env['rack.session'] = mw.new_session
+            mw.preempt_sid(sd.session_id,
+                           @session_options[:expire_after] || @session_options[:cache_expire_after])
+          else
+            @session_options[:id] = sd.session_id
+            @env['rack.session'] = sd
+          end
+
           @env['rack.session'].global = @env['rack.session.global']
 
-          session
+          sd
         end
 
-        def reset_global_session
+        def reset_global_session(sid = nil)
+          mw = @env['rack.session.global.middleware']
+          sd = nil
+          unless sid.nil?
+            sd = mw.use_session(sid)
+          end
+
           # let's save the last known session id, so we can delete it!
           unless @session_global_options[:id].nil?
             @session_global_options[:reset] = true
@@ -41,10 +61,19 @@ module Palmade
           end
           @session_global_options.delete(:id)
 
-          @env['rack.session.global'] = Palmade::CouchPotato::SessionData.new
-          session.global = @env['rack.session.global']
+          if sd.nil?
+            sd = @env['rack.session.global'] = mw.new_session
+            mw.preempt_sid(sd.session_id,
+                           @session_global_options[:expire_after] || @session_global_options[:cache_expire_after])
 
-          global_session
+          else
+            @session_global_options[:id] = sd.session_id
+            @env['rack.session.global'] = sd
+          end
+
+          @env['rack.session'].global = @env['rack.session.global']
+
+          sd
         end
 
         def drop_session
